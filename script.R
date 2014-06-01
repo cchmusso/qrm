@@ -394,10 +394,10 @@ fit_per_window <- vector('list', nWindow)
 #fit a multivariate t distribution to the residuals of the ARMA-GARCH fits
 
 #nu for copula
-nu_2M <- matrix(nrow=ncol(logLosses), ncol=(nWindow-1))
-nu_2D <- matrix(nrow=1, ncol=(nWindow-1))
-nu_3M <- matrix(nrow=1, ncol=(nWindow-1))
-nu_3D <- matrix(nrow=1, ncol=(nWindow-1))
+nu_2M <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+nu_2D <- matrix(nrow=1, ncol=(nWindow))
+nu_3M <- matrix(nrow=1, ncol=(nWindow))
+nu_3D <- matrix(nrow=1, ncol=(nWindow))
 res <- matrix(nrow=windowSize, ncol=ncol(logLosses))
 nu_2Ms <- matrix(nrow=1, ncol=ncol(logLosses))
 for (k in 0:(nWindow-1)) {
@@ -457,5 +457,21 @@ for (k in 0:(nWindow-1)) {
 }
 
 # 23.05.14
-# TODO: stock nu for each window
 # TODO : plot nu with confidence
+
+for (s in 1:ncol(logLosses)) {
+  xx <- seq(0, nWindow-2)
+  stock <- paste("different nu values\nstock ", s)
+  pdf(paste(stock, ".pdf"))
+ 
+  minimum <- min(nu_1, nu_2D, nu_3D, nu_2M[s,])
+  maximum <- max(nu_1, nu_2D, nu_3D, nu_2M[s,])
+  
+  
+  nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow-1))
+  plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", ylim=c(minimum, maximum))
+  lines(x=xx, y=nu_2D, type="l",col="red")
+  lines(x=xx, y=nu_3D, type="l",col="blue")
+  lines(x=xx, y=nu_2M[s,], type="l",col="green", ylim=c(min(nu_2M[s,]), max(nu_2M[s,])))
+  dev.off()
+}
