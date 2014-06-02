@@ -328,7 +328,9 @@ lines(VaRStud,col="red")
 # Data
 # ----------------------------------------------------------------
 getSymbols(listUSstocks, from="2006-12-19", to="2013-12-31", src="yahoo")
-adjustedPrices <- cbind(KO[, 6], MMM[, 6], MCD[, 6], ALK[, 6], AXP[, 6], WRB[, 6], HUM[, 6],HRS[, 6], CSX[, 6], IBM[, 6], BT[, 6], AEP[, 6], CMS[, 6])
+#listUSstocks <- c("APD" , "ASH" , "KO" , "GT", "MCD" , "ALK" , "AXP" , "WRB" , "HUM" , "COO" , "MMM" , "CSX" , "AVT" , "XOM" , "TSO" , "IBM" , "HRS" , "BT" ,"AEP" , "CMS")
+#adjustedPrices <- cbind(KO[, 6], MMM[, 6], MCD[, 6], ALK[, 6], AXP[, 6], WRB[, 6], HUM[, 6],HRS[, 6], CSX[, 6], IBM[, 6], BT[, 6], AEP[, 6], CMS[, 6])
+adjustedPrices <- cbind(APD[, 6] , ASH[, 6] , KO[, 6] , MCD[, 6] , ALK[, 6] , AXP[, 6] , WRB[, 6] , HUM[, 6] , COO[, 6] , MMM[, 6] , CSX[, 6] , AVT[, 6] , XOM[, 6] , TSO[, 6] , IBM[, 6] , HRS[, 6] , BT[, 6] ,AEP[, 6] , CMS[, 6])
 
 returnOnAdjustedPrices <- qrm.price2ret(adjustedPrices)
 returnCleaned <- qrm.clean.prices(returnOnAdjustedPrices, method="remove")
@@ -360,7 +362,7 @@ for (s in 1:ncol(logLosses)) {
   #fist value to start with: 268th element of loglosse
   start <- 268
   len <- 1267
-  
+  minBIC <- 100000
   #Find the best ARMA-GARCH Orders
   for (p1 in 0:2) {
     for (q1 in 0:2) {
@@ -371,19 +373,22 @@ for (s in 1:ncol(logLosses)) {
           iter <- paste(iter, collapse=" ")
           specStud <- ugarchspec(variance.model=list(model='sGARCH',garchOrder=c(p1,q1)), mean.model=list(armaOrder=c(p2,q2)),distribution.model="std")
           fitStud <- ugarchfit(spec=specStud,data=logLosses[start:len, s],out.sample=0)
-          VaRStud <- fitStud@fit$sigma*qt(.95, df = c(1))+fitStud@fit$fitted
-          if (length(VaRStud) > 0 ){ #check convergence
-            arch.list[[iter]] = fitStud
+          #check convergence
+          if (fitStud@fit$convergence ==0) {
+            #get bic value :)
+            BIC <- infocriteria(fitStud)[2]
+            if (BIC < minBIC){
+              minBIC <- BIC
+              #save orders of the minimum bic value
+              minBICorders <- iter
+            }
           }
         }
       }
     }
   }
-  info.mat <- sapply(arch.list, infocriteria)
-  #bic value :)
-  BIC <- info.mat[2, ]
-  min <-which(BIC == min(BIC))
-  orders <- as.numeric(unlist(strsplit(names(min), " ")))
+
+  orders <- as.numeric(unlist(strsplit(minBICorders, " ")))
   stock_orders[[s]] <- orders
   
 }
@@ -432,7 +437,7 @@ for (k in 0:(nWindow-1)) {
   my_fit <- fit.tmv(res,symmetric=TRUE,silent=TRUE, na.rm=TRUE)
   #in case we need other functions than nu
   fit_per_window[[k+1]] <- my_fit
-  nu_1 <- coef(my_fit)$nu
+  nu_1[, (k+1)] <- coef(my_fit)$nu
   
   nu_2M[, (k+1)] <-nu_2Ms
 
@@ -460,18 +465,19 @@ for (k in 0:(nWindow-1)) {
 # TODO : plot nu with confidence
 
 for (s in 1:ncol(logLosses)) {
-  xx <- seq(0, nWindow-2)
-  stock <- paste("different nu values\nstock ", s)
+  xx <- seq(0, nWindow-1)
+  stock <- paste("different nu values\nstock", s)
   pdf(paste(stock, ".pdf"))
  
-  minimum <- min(nu_1, nu_2D, nu_3D, nu_2M[s,])
-  maximum <- max(nu_1, nu_2D, nu_3D, nu_2M[s,])
+  minimum <- min(nu_1, nu_2D, nu_3D, nu_2M[s,], nu_3M)
+  maximum <- max(nu_1, nu_2D, nu_3D, nu_2M[s,], nu_3M)
   
   
-  nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow-1))
+  nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow))
   plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", ylim=c(minimum, maximum))
   lines(x=xx, y=nu_2D, type="l",col="red")
   lines(x=xx, y=nu_3D, type="l",col="blue")
-  lines(x=xx, y=nu_2M[s,], type="l",col="green", ylim=c(min(nu_2M[s,]), max(nu_2M[s,])))
+  lines(x=xx, y=nu_2M[s,], type="l",col="green")
+  lines(x=xx, y=nu_3M, type="l",col="yellow")
   dev.off()
 }
