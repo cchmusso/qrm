@@ -328,7 +328,6 @@ lines(VaRStud,col="red")
 # Data
 # ----------------------------------------------------------------
 getSymbols(listUSstocks, from="2006-12-19", to="2013-12-31", src="yahoo")
-#listUSstocks <- c("APD" , "ASH" , "KO" , "GT", "MCD" , "ALK" , "AXP" , "WRB" , "HUM" , "COO" , "MMM" , "CSX" , "AVT" , "XOM" , "TSO" , "IBM" , "HRS" , "BT" ,"AEP" , "CMS")
 adjustedPrices <- cbind(APD[, 6] , ASH[, 6] , KO[, 6] , ALK[, 6] , HUM[, 6] , COO[, 6] , MMM[, 6] , XOM[, 6] , TSO[, 6] , IBM[, 6]) , HRS[, 6] , BT[, 6] ,AEP[, 6] , CMS[, 6])
 
 returnOnAdjustedPrices <- qrm.price2ret(adjustedPrices)
@@ -413,6 +412,9 @@ betas1 <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
 mus <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
 residuals <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
 sigmas <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+sigma_tmv <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+
+copCorr <- vector('list', nWindow)
 
 for (k in 0:(nWindow-1)) {
   cat(k, "computed nu")
@@ -437,11 +439,14 @@ for (k in 0:(nWindow-1)) {
       
       #nu
       nu_2Ms[, s] <- fitStud@fit$coef[["shape"]]
-    }
+    } else{
+      print("not converged")
+    } 
     #join_res <-rbind(join_res, res[, s])
     
     #fit a multvariate t distribution to the residuals of the ARMA-GARCH fits
     #univ_fit <- fit.tmv(residuals_s)   
+
   }
   join_res <- do.call(rbind,as.list(res))
   
@@ -450,6 +455,8 @@ for (k in 0:(nWindow-1)) {
   #in case we need other functions than nu
   fit_per_window[[k+1]] <- my_fit
   nu_1[, (k+1)] <- coef(my_fit)$nu
+  #Dispersion parameters
+  sigma_tmv[, (k+1)] <- coef(my_fit)$sigma
   
   nu_2M[, (k+1)] <-nu_2Ms
 
@@ -470,53 +477,83 @@ for (k in 0:(nWindow-1)) {
   obs <- pt(res, df=nu_3M[, (k+1)])
   fit_cop <- fit.tcopula(obs,  method = "Kendall")
   nu_3D[, (k+1)] <- fit_cop$nu #500 items stocked
+  copCorr[[k+1]] <- fit_cop$P
+  
   cat("\n")
 }
+#end computing nus
 
-#configuration for the plot
-labelsDate <- c()
+# ----------------------------------------------------------------
+# Configuration for the plot
+# ----------------------------------------------------------------
+labels <- c()
 for (k in 0:5) {
-  labelsDate <- c(labelsDate, index(logLosses[(windowSize + start+k*100), ])) 
+  labels <- c(labels, index(logLosses[(windowSize + start+k*100), ])) 
 }
-class(labelsDate) <- "Date"
-nus <- c("nu_1", "nu_2D", "nu_3D", "nu_2M", "nu_3M")
-colors <- c("black", "red", "blue", "green", "yellow")
+class(labels) <- "Date"
 
-#Plotting nus
+# ----------------------------------------------------------------
+# Plotting nus
+# ----------------------------------------------------------------
+#FIRST GRAPH
+minimum <- min(nu_1, nu_2D, nu_3D)
+maximum <- max(nu_1, nu_2D, nu_3D)
+xx <- seq(0, nWindow-1)
+stock <- paste("different nu values\n(dependence)")
+pdf(paste(stock, ".pdf"))
 
-for (s in 1:length(selectedStocks)) {
-  xx <- seq(0, nWindow-1)
-  stock <- paste("different nu values\nstock", selectedStocks[s])
-  pdf(paste(stock, ".pdf"))
- 
-  minimum <- min(nu_1, nu_2D, nu_3D, nu_2M[s,], nu_3M)
-  maximum <- max(nu_1, nu_2D, nu_3D, nu_2M[s,], nu_3M)
-  
-  nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow))
-  plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", xlim=c(0, 580),ylim=c(minimum, maximum), xaxt="n")
-  axis(1, at=seq(from=1, to=502, length=6), labels=labels, cex.axis=0.7)
-  legend("topright", nus, col=colors, pch = "--", title.adj = 0.5)
-  
-  lines(x=xx, y=nu_2D, type="l",col="red")
-  lines(x=xx, y=nu_3D, type="l",col="blue")
-  lines(x=xx, y=nu_2M[s,], type="l",col="green")
-  lines(x=xx, y=nu_3M, type="l",col="yellow")
-  dev.off()
+minimum <- min(nu_1, nu_2D, nu_3D)
+maximum <- max(nu_1, nu_2D, nu_3D)
+nus <- c("nu_1", "nu_2D", "nu_3D")
+colors <- c("black", "red", "blue")
+
+nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow))
+plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", xlim=c(0, 580),ylim=c(minimum, maximum), xaxt="n")
+axis(1, at=seq(from=1, to=502, length=6), labels=labels, cex.axis=0.7)
+legend("topright", nus, col=colors, pch = "--", title.adj = 0.5)
+
+lines(x=xx, y=nu_2D, type="l",col="red")
+lines(x=xx, y=nu_3D, type="l",col="blue")
+dev.off()
+
+#SECOND GRAPH
+stock <- paste("different nu values\n(marginal)")
+pdf(paste(stock, ".pdf"))
+
+minimum <- min(nu_1,nu_2M, nu_3M)
+maximum <- max(nu_1, nu_2M, nu_3M)
+
+nus <- c("nu_1", "nu_2M(APD)", "nu_2M(ALK)","nu_2M(HUM)","nu_3M")
+colors <- c("black", "red", "blue", "green", "orange")
+
+
+nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow))
+plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", xlim=c(0, 580),ylim=c(minimum, maximum), xaxt="n")
+axis(1, at=seq(from=1, to=502, length=6), labels=labels, cex.axis=0.7)
+legend("topright", nus, col=colors, pch = "--", title.adj = 0.5)
+
+selected <- c(1, 4, 5)
+colors <- c("red", "blue", "green")
+for (s in 1:length(selected)) {
+  print(selected[s])
+  lines(x=xx, y=nu_2M[selected[s],], type="l",col=colors[s])
 }
+lines(x=xx, y=nu_3M, type="l",col="orange")
+dev.off()
+
 
 # ----------------------------------------------------------------
 # VaR predictions
 # ----------------------------------------------------------------
 nSamples <- 1000
-sigmasCarre <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+sigmasCarre <- matrix(nrow=ncol(logLosses), ncol=(nWindow+1))
 r_t <- matrix(nrow=nSamples, ncol=ncol(logLosses))
+rC_t <- matrix(nrow=nSamples, ncol=ncol(logLosses))
 
-for (s in 1:length(selectedStocks)) {    
-  sigmasCarre[s, 1] <- 0
-}
-
-VaR95 <- matrix(nrow=1, ncol=nWindow)
-VaR99 <- matrix(nrow=1, ncol=nWindow)
+VaR1_95 <- matrix(nrow=nWindow, ncol=1)
+VaR1_99 <- matrix(nrow=nWindow, ncol=1)
+VaR2_95 <- matrix(nrow=nWindow, ncol=1)
+VaR2_99 <- matrix(nrow=nWindow, ncol=1)
 
 for (k in 1:(nWindow)) {
   cat(k, "prediction of VaR")
@@ -524,19 +561,128 @@ for (k in 1:(nWindow)) {
   for (s in 1:length(selectedStocks)) {    
     alpha <- alphas1[s, (k)]
     beta <- betas1[s, (k)]
-    mu <- mus[s, (k)]
     residual <- residuals[s, (k)]/100
     sigma <- sigmas[s, (k)]
     
     sigmasCarre[s, (k+1)] <- alpha*residual^2 + beta*(sigma)^2
-    
-    epsilon <- rt(nSamples, nu_1[(k)])  
-    r_t[, s] <- mu+sqrt(sigmasCarre[s, (k+1)])*epsilon    
-    
+ 
   }
-  R_t <- apply(r_t, 1, sum)
-  VaR95[, k] <- quantile(R_t, 0.95)
-  VaR99[, k] <- quantile(R_t, 0.99)
+  #Generate 1000 samples from the previously fitted multivariate Student distribution with nu_1 according to window.
+  varcovar <- coef(fit_per_window[[k]])$sigma
+  epsilon <- rmvt(nSamples, sigma=varcovar, df=nu_1[(k)])  
+  sig <- t(sqrt(sigmasCarre[, (k+1)]))
+  for (s in 1:length(selectedStocks)) {    
+   r_t[, s] <- mus[s, k] + sig[,s]*epsilon[,s]
+  }
+  #old(C)
+  #sig <- sqrt(sigmasCarre[, (k+1)])
+  #r_t <- mus[, k] + sig*t(epsilon)
+  
+  #Generate 1000 samples from the previously fitted Student copula  
+  samples <- rcopula.t(nSamples, nu_3D[k], copCorr[[k]])
+  epsilonT <- qt(samples, nu_3M[k])
+  for (s in 1:length(selectedStocks)) {    
+   rC_t[, s] <- mus[s, k] + sig[,s]*epsilonT[,s]
+  }
+  #rC_t <- mus[, k] + sig*t(epsilonT)
+  
+  R_t <- apply(r_t, 1, sum)*0.1
+  RC_t <- apply(rC_t, 1, sum)*0.1
+  #VaR predictions
+  #First Apporach
+  VaR1_95[k] <- quantile(R_t, 0.95)
+  VaR1_99[k] <- quantile(R_t, 0.99)
+  
+  #Second Apporach
+  VaR2_95[k] <- quantile(RC_t, 0.95)
+  VaR2_99[k] <- quantile(RC_t, 0.99)
   cat("\n")
 }
+# ----------------------------------------------------------------
+# Plotting VaR
+# ----------------------------------------------------------------
+#VAR 95%
+tit <- paste("VaR 0.95")
+pdf(paste(tit, ".pdf"))
+
+minimum <- min(VaR1_95, VaR2_95)
+maximum <- max(VaR1_95, VaR2_95)
+
+leg <- c("VaR (1st approach)", "VaR (2nd approach)")
+colors <- c("red", "blue")
+
+plot(VaR1_95, type="l",main=tit, xlab="window", ylab="VaR", col="red", xlim=c(0, 500),ylim=c(minimum, maximum), xaxt="n")
+axis(1, at=seq(from=1, to=502, length=6), labels=labels, cex.axis=0.7)
+legend("topright", leg, col=colors, pch = "--", title.adj = 0.5)
+lines(VaR2_95, type="l",col="blue")
+
+dev.off()
+
+#VAR 99%
+tit <- paste("VaR 0.99")
+pdf(paste(tit, ".pdf"))
+
+minimum <- min(VaR1_99, VaR2_99)
+maximum <- max(VaR1_99, VaR2_99)
+
+plot(VaR1_99, type="l",main=tit, xlab="window", ylab="VaR", col="red", xlim=c(0, 500),ylim=c(minimum, maximum), xaxt="n")
+axis(1, at=seq(from=1, to=502, length=6), labels=labels, cex.axis=0.7)
+legend("topright", leg, col=colors, pch = "--", title.adj = 0.5)
+lines(VaR2_99, type="l",col="blue")
+
+dev.off()
+
+# ----------------------------------------------------------------
+# CASE STUDY 4: Model stress testing
+# ----------------------------------------------------------------
+
+#May 18, 2012 = 1363th of LogRet = 96th element of nu
+#October 10, 2013 = 1713th of LogRet = 446th element of nu
+nSamples <- 10000
+sigmasCarre_events <- matrix(nrow=ncol(logLosses), ncol=(nWindow+1))
+rC_t_events <- matrix(nrow=nSamples, ncol=ncol(logLosses))
+
+VaR1_95_events <- matrix(nrow=2, ncol=3)
+rownames(VaR1_95_events) <- c("badEvent", "goodEvent")
+colnames(VaR1_95_events) <- c("scenario1", "scenario2", "scenario3")
+
+#weights for each situations
+scenarios <- matrix(c(1, 1, 1, 0.75, 0.75, 1), nrow=3, ncol=2, byrow = TRUE)
+rownames(scenarios) <- c("scenario1", "scenario2", "scenario3")
+colnames(scenarios) <- c("D", "M")
+for (k in c(95, 445)) {
+  cat(k, "prediction of VaR")
+  #Two Events
+  if(k==95) {
+    z<-1
+  } else {
+    z<-2
+  }
+  for (s in 1:length(selectedStocks)) {    
+    alpha <- alphas1[s, (k)]
+    beta <- betas1[s, (k)]
+    residual <- residuals[s, (k)]/100
+    sigma <- sigmas[s, (k)]
+    
+    sigmasCarre_events[s, (k+1)] <- alpha*residual^2 + beta*(sigma)^2
+    
+  }
+  #Generate 1000 samples from the previously fitted Student copula  
+  for (v in 1:nrow(scenarios)) {
+    print(v)
+    samples <- rcopula.t(nSamples, nu_3D[k]*scenarios[v, 1], copCorr[[k]])
+    epsilonT <- qt(samples, nu_3M[k]*scenarios[v, 2])
+    rC_t[, s] <- mus[, k] +t(sqrt(sigmasCarre[, (k+1)]))%*%t(epsilonT)
+    
+    RC_t <- apply(rC_t, 1, sum)*0.1
+    #VaR predictions
+    VaR1_95_events[z, v] <- quantile(RC_t, 0.95)
+  }
+  cat("\n")
+}
+
+
+
+
+
 
