@@ -329,8 +329,7 @@ lines(VaRStud,col="red")
 # ----------------------------------------------------------------
 getSymbols(listUSstocks, from="2006-12-19", to="2013-12-31", src="yahoo")
 #listUSstocks <- c("APD" , "ASH" , "KO" , "GT", "MCD" , "ALK" , "AXP" , "WRB" , "HUM" , "COO" , "MMM" , "CSX" , "AVT" , "XOM" , "TSO" , "IBM" , "HRS" , "BT" ,"AEP" , "CMS")
-#adjustedPrices <- cbind(KO[, 6], MMM[, 6], MCD[, 6], ALK[, 6], AXP[, 6], WRB[, 6], HUM[, 6],HRS[, 6], CSX[, 6], IBM[, 6], BT[, 6], AEP[, 6], CMS[, 6])
-adjustedPrices <- cbind(APD[, 6] , ASH[, 6] , KO[, 6] , MCD[, 6] , ALK[, 6] , AXP[, 6] , WRB[, 6] , HUM[, 6] , COO[, 6] , MMM[, 6] , CSX[, 6] , AVT[, 6] , XOM[, 6] , TSO[, 6] , IBM[, 6] , HRS[, 6] , BT[, 6] ,AEP[, 6] , CMS[, 6])
+adjustedPrices <- cbind(APD[, 6] , ASH[, 6] , KO[, 6] , ALK[, 6] , HUM[, 6] , COO[, 6] , MMM[, 6] , XOM[, 6] , TSO[, 6] , IBM[, 6]) , HRS[, 6] , BT[, 6] ,AEP[, 6] , CMS[, 6])
 
 returnOnAdjustedPrices <- qrm.price2ret(adjustedPrices)
 returnCleaned <- qrm.clean.prices(returnOnAdjustedPrices, method="remove")
@@ -341,27 +340,28 @@ returnCleaned$na.prop
 returnCleaned$max.na.run
 #no additonal information -> choose the first 10
 returnOnAdjustedPrices <- returnOnAdjustedPrices[, 1:10]
+selectedStocks <- c("APD" , "ASH" , "KO" , "ALK" , "HUM", "COO" , "MMM" , "XOM", "TSO", "IBM")
+
 logLosses <- returnOnAdjustedPrices *-1
 
 # ----------------------------------------------------------------
 # Filtering
 # ----------------------------------------------------------------
 windowSize <- 1000
-len <- length(logLosses)
 
 # residuals <- array(dim=length(logLosses[1, ]),1)
 arch.list = list()
 stock_orders <- vector('list', ncol(logLosses))
 
 #For each window, fit an appropriate ARMA-GARCH model to the log-losses of each stock separately
-for (s in 1:ncol(logLosses)) {
+for (s in 1:length(selectedStocks)) {
   print (s)
   #test on the first window
   
   #fist value in 2012(2012-01-03): 1268th element of loglosse
   #fist value to start with: 268th element of loglosse
   start <- 268
-  len <- 1267
+  end <- 1267
   minBIC <- 100000
   #Find the best ARMA-GARCH Orders
   for (p1 in 0:2) {
@@ -372,7 +372,7 @@ for (s in 1:ncol(logLosses)) {
           print(iter)
           iter <- paste(iter, collapse=" ")
           specStud <- ugarchspec(variance.model=list(model='sGARCH',garchOrder=c(p1,q1)), mean.model=list(armaOrder=c(p2,q2)),distribution.model="std")
-          fitStud <- ugarchfit(spec=specStud,data=logLosses[start:len, s],out.sample=0)
+          fitStud <- ugarchfit(spec=specStud,data=logLosses[start:end, s],out.sample=0)
           #check convergence
           if (fitStud@fit$convergence ==0) {
             #get bic value :)
@@ -393,18 +393,27 @@ for (s in 1:ncol(logLosses)) {
   
 }
 
-nWindow <- nrow(logLosses)-len
+nWindow <- nrow(logLosses)-end
 #all parameters for the fitted multivariate t distribution to the residuals
 fit_per_window <- vector('list', nWindow)
 #fit a multivariate t distribution to the residuals of the ARMA-GARCH fits
 
 #nu for copula
+nu_1 <- matrix(nrow=1, ncol=(nWindow))
 nu_2M <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
 nu_2D <- matrix(nrow=1, ncol=(nWindow))
 nu_3M <- matrix(nrow=1, ncol=(nWindow))
 nu_3D <- matrix(nrow=1, ncol=(nWindow))
 res <- matrix(nrow=windowSize, ncol=ncol(logLosses))
 nu_2Ms <- matrix(nrow=1, ncol=ncol(logLosses))
+
+#parameters that we have to register
+alphas1 <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+betas1 <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+mus <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+residuals <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+sigmas <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+
 for (k in 0:(nWindow-1)) {
   cat(k, "computed nu")
   
@@ -413,18 +422,21 @@ for (k in 0:(nWindow-1)) {
     cat(" stock", s)
     
     specStud <- ugarchspec(variance.model=list(model='sGARCH',garchOrder=c(stock_orders[[s]][1],stock_orders[[s]][2])), mean.model=list(armaOrder=c(stock_orders[[s]][3],stock_orders[[s]][4])),distribution.model="std")
-    fitStud <- ugarchfit(spec=specStud,data=logLosses[(start+k):(len+k), s],out.sample=0)
+    fitStud <- ugarchfit(spec=specStud,data=logLosses[(start+k):(end+k), s],out.sample=0)
     
     #if converge
     if (fitStud@fit$convergence ==0) {
       residuals_s <- residuals(fitStud, standardize=TRUE)
       
       res[, s] <- residuals_s
+      alphas1[s, (k+1)] <- coef(fitStud)["alpha1"]
+      betas1[s, (k+1)] <- coef(fitStud)["beta1"]
+      mus[s, (k+1)] <- coef(fitStud)["mu"]
+      residuals[s, (k+1)] <- residuals_s[windowSize]
+      sigmas[s, (k+1)] <- sigma(fitStud)[windowSize]
       
       #nu
       nu_2Ms[, s] <- fitStud@fit$coef[["shape"]]
-    } else {
-      print ("not converged")
     }
     #join_res <-rbind(join_res, res[, s])
     
@@ -461,23 +473,70 @@ for (k in 0:(nWindow-1)) {
   cat("\n")
 }
 
-# 23.05.14
-# TODO : plot nu with confidence
+#configuration for the plot
+labelsDate <- c()
+for (k in 0:5) {
+  labelsDate <- c(labelsDate, index(logLosses[(windowSize + start+k*100), ])) 
+}
+class(labelsDate) <- "Date"
+nus <- c("nu_1", "nu_2D", "nu_3D", "nu_2M", "nu_3M")
+colors <- c("black", "red", "blue", "green", "yellow")
 
-for (s in 1:ncol(logLosses)) {
+#Plotting nus
+
+for (s in 1:length(selectedStocks)) {
   xx <- seq(0, nWindow-1)
-  stock <- paste("different nu values\nstock", s)
+  stock <- paste("different nu values\nstock", selectedStocks[s])
   pdf(paste(stock, ".pdf"))
  
   minimum <- min(nu_1, nu_2D, nu_3D, nu_2M[s,], nu_3M)
   maximum <- max(nu_1, nu_2D, nu_3D, nu_2M[s,], nu_3M)
   
-  
   nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow))
-  plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", ylim=c(minimum, maximum))
+  plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", xlim=c(0, 580),ylim=c(minimum, maximum), xaxt="n")
+  axis(1, at=seq(from=1, to=502, length=6), labels=labels, cex.axis=0.7)
+  legend("topright", nus, col=colors, pch = "--", title.adj = 0.5)
+  
   lines(x=xx, y=nu_2D, type="l",col="red")
   lines(x=xx, y=nu_3D, type="l",col="blue")
   lines(x=xx, y=nu_2M[s,], type="l",col="green")
   lines(x=xx, y=nu_3M, type="l",col="yellow")
   dev.off()
 }
+
+# ----------------------------------------------------------------
+# VaR predictions
+# ----------------------------------------------------------------
+nSamples <- 1000
+sigmasCarre <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
+r_t <- matrix(nrow=nSamples, ncol=ncol(logLosses))
+
+for (s in 1:length(selectedStocks)) {    
+  sigmasCarre[s, 1] <- 0
+}
+
+VaR95 <- matrix(nrow=1, ncol=nWindow)
+VaR99 <- matrix(nrow=1, ncol=nWindow)
+
+for (k in 1:(nWindow)) {
+  cat(k, "prediction of VaR")
+
+  for (s in 1:length(selectedStocks)) {    
+    alpha <- alphas1[s, (k)]
+    beta <- betas1[s, (k)]
+    mu <- mus[s, (k)]
+    residual <- residuals[s, (k)]/100
+    sigma <- sigmas[s, (k)]
+    
+    sigmasCarre[s, (k+1)] <- alpha*residual^2 + beta*(sigma)^2
+    
+    epsilon <- rt(nSamples, nu_1[(k)])  
+    r_t[, s] <- mu+sqrt(sigmasCarre[s, (k+1)])*epsilon    
+    
+  }
+  R_t <- apply(r_t, 1, sum)
+  VaR95[, k] <- quantile(R_t, 0.95)
+  VaR99[, k] <- quantile(R_t, 0.99)
+  cat("\n")
+}
+
