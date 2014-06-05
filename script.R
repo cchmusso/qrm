@@ -347,6 +347,11 @@ logLosses <- returnOnAdjustedPrices *-1
 # Filtering
 # ----------------------------------------------------------------
 windowSize <- 1000
+#fist value in 2012(2012-01-03): 1268th element of loglosse
+#fist value to start with: 268th element of loglosse
+start <- 1
+end <- windowSize+start-1
+nWindow <- nrow(logLosses)-windowSize
 
 # residuals <- array(dim=length(logLosses[1, ]),1)
 arch.list = list()
@@ -357,10 +362,6 @@ for (s in 1:length(selectedStocks)) {
   print (s)
   #test on the first window
   
-  #fist value in 2012(2012-01-03): 1268th element of loglosse
-  #fist value to start with: 268th element of loglosse
-  start <- 268
-  end <- 1267
   minBIC <- 100000
   #Find the best ARMA-GARCH Orders
   for (p1 in 0:2) {
@@ -392,7 +393,7 @@ for (s in 1:length(selectedStocks)) {
   
 }
 
-nWindow <- nrow(logLosses)-end
+#nWindow <- nrow(logLosses)-end
 #all parameters for the fitted multivariate t distribution to the residuals
 fit_per_window <- vector('list', nWindow)
 #fit a multivariate t distribution to the residuals of the ARMA-GARCH fits
@@ -412,8 +413,7 @@ betas1 <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
 mus <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
 residuals <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
 sigmas <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
-sigma_tmv <- matrix(nrow=ncol(logLosses), ncol=(nWindow))
-
+sigma_tmv <- vector('list', nWindow)
 copCorr <- vector('list', nWindow)
 
 for (k in 0:(nWindow-1)) {
@@ -456,7 +456,7 @@ for (k in 0:(nWindow-1)) {
   fit_per_window[[k+1]] <- my_fit
   nu_1[, (k+1)] <- coef(my_fit)$nu
   #Dispersion parameters
-  sigma_tmv[, (k+1)] <- coef(my_fit)$sigma
+  sigma_tmv[[(k+1)]] <- coef(my_fit)$sigma
   
   nu_2M[, (k+1)] <-nu_2Ms
 
@@ -487,17 +487,16 @@ for (k in 0:(nWindow-1)) {
 # Configuration for the plot
 # ----------------------------------------------------------------
 labels <- c()
-for (k in 0:5) {
-  labels <- c(labels, index(logLosses[(windowSize + start+k*100), ])) 
+for (k in 0:4) {
+  labels <- c(labels, index(logLosses[(windowSize + start+k*154), ])) 
 }
+labels <- c(labels, index(logLosses[1769, ])) 
 class(labels) <- "Date"
 
 # ----------------------------------------------------------------
 # Plotting nus
 # ----------------------------------------------------------------
 #FIRST GRAPH
-minimum <- min(nu_1, nu_2D, nu_3D)
-maximum <- max(nu_1, nu_2D, nu_3D)
 xx <- seq(0, nWindow-1)
 stock <- paste("different nu values\n(dependence)")
 pdf(paste(stock, ".pdf"))
@@ -508,8 +507,8 @@ nus <- c("nu_1", "nu_2D", "nu_3D")
 colors <- c("black", "red", "blue")
 
 nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow))
-plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", xlim=c(0, 580),ylim=c(minimum, maximum), xaxt="n")
-axis(1, at=seq(from=1, to=502, length=6), labels=labels, cex.axis=0.7)
+plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", xlim=c(0, (nWindow)),ylim=c(minimum, maximum), xaxt="n")
+axis(1, at=seq(from=1, to=nWindow, length=6), labels=labels, cex.axis=0.7)
 legend("topright", nus, col=colors, pch = "--", title.adj = 0.5)
 
 lines(x=xx, y=nu_2D, type="l",col="red")
@@ -528,14 +527,13 @@ colors <- c("black", "red", "blue", "green", "orange")
 
 
 nu_1s <- matrix(nu_1, nrow=1, ncol=(nWindow))
-plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", xlim=c(0, 580),ylim=c(minimum, maximum), xaxt="n")
-axis(1, at=seq(from=1, to=502, length=6), labels=labels, cex.axis=0.7)
+plot(x=xx, y=nu_1s, type="l",main=stock, xlab="window", ylab="nu", col="black", xlim=c(0, (nWindow)),ylim=c(minimum, maximum), xaxt="n")
+axis(1, at=seq(from=1, to=nWindow, length=6), labels=labels, cex.axis=0.7)
 legend("topright", nus, col=colors, pch = "--", title.adj = 0.5)
 
 selected <- c(1, 4, 5)
 colors <- c("red", "blue", "green")
 for (s in 1:length(selected)) {
-  print(selected[s])
   lines(x=xx, y=nu_2M[selected[s],], type="l",col=colors[s])
 }
 lines(x=xx, y=nu_3M, type="l",col="orange")
@@ -557,7 +555,7 @@ VaR2_99 <- matrix(nrow=nWindow, ncol=1)
 
 for (k in 1:(nWindow)) {
   cat(k, "prediction of VaR")
-
+  
   for (s in 1:length(selectedStocks)) {    
     alpha <- alphas1[s, (k)]
     beta <- betas1[s, (k)]
@@ -565,14 +563,14 @@ for (k in 1:(nWindow)) {
     sigma <- sigmas[s, (k)]
     
     sigmasCarre[s, (k+1)] <- alpha*residual^2 + beta*(sigma)^2
- 
+    
   }
   #Generate 1000 samples from the previously fitted multivariate Student distribution with nu_1 according to window.
   varcovar <- coef(fit_per_window[[k]])$sigma
   epsilon <- rmvt(nSamples, sigma=varcovar, df=nu_1[(k)])  
   sig <- t(sqrt(sigmasCarre[, (k+1)]))
   for (s in 1:length(selectedStocks)) {    
-   r_t[, s] <- mus[s, k] + sig[,s]*epsilon[,s]
+    r_t[, s] <- mus[s, k] + sig[,s]*epsilon[,s]
   }
   #old(C)
   #sig <- sqrt(sigmasCarre[, (k+1)])
@@ -582,7 +580,7 @@ for (k in 1:(nWindow)) {
   samples <- rcopula.t(nSamples, nu_3D[k], copCorr[[k]])
   epsilonT <- qt(samples, nu_3M[k])
   for (s in 1:length(selectedStocks)) {    
-   rC_t[, s] <- mus[s, k] + sig[,s]*epsilonT[,s]
+    rC_t[, s] <- mus[s, k] + sig[,s]*epsilonT[,s]
   }
   #rC_t <- mus[, k] + sig*t(epsilonT)
   
@@ -680,9 +678,3 @@ for (k in c(95, 445)) {
   }
   cat("\n")
 }
-
-
-
-
-
-
